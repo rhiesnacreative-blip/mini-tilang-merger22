@@ -5,14 +5,37 @@ from datetime import datetime, timedelta
 import csv
 import os
 import pandas as pd
+import json
 
 st.set_page_config(page_title="Tilang PDF Merger", page_icon="📄", layout="centered")
 
-# ================== USER MANAGEMENT ==================
+# ================== LOAD & SAVE USERS (PERMANEN) ==================
+USERS_FILE = "users.json"
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_users(users_dict):
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(users_dict, f, ensure_ascii=False, indent=2)
+
+# Load users
 if "users" not in st.session_state:
-    st.session_state.users = {
-        "wawanris": {"password": "gakkum789", "role": "superadmin", "last_active": None}
-    }
+    st.session_state.users = load_users()
+    # Pastikan superadmin selalu ada
+    if "wawanris" not in st.session_state.users:
+        st.session_state.users["wawanris"] = {
+            "password": "gakkum789", 
+            "role": "superadmin", 
+            "last_active": None
+        }
+        save_users(st.session_state.users)
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -25,6 +48,7 @@ if "current_role" not in st.session_state:
 def update_last_active(username):
     if username in st.session_state.users:
         st.session_state.users[username]["last_active"] = datetime.now()
+        save_users(st.session_state.users)
 
 # ================== CEK OPERATOR ONLINE ==================
 def get_online_users():
@@ -134,7 +158,12 @@ if st.session_state.current_role == "superadmin":
             new_pass = st.text_input("Password Operator Baru", type="password")
             if st.button("Tambahkan Operator", type="primary"):
                 if new_user and new_pass and new_user not in st.session_state.users:
-                    st.session_state.users[new_user] = {"password": new_pass, "role": "operator", "last_active": None}
+                    st.session_state.users[new_user] = {
+                        "password": new_pass, 
+                        "role": "operator", 
+                        "last_active": None
+                    }
+                    save_users(st.session_state.users)
                     st.success(f"✅ Operator `{new_user}` berhasil ditambahkan!")
                 else:
                     st.error("❌ Username sudah ada atau kosong!")
@@ -142,14 +171,12 @@ if st.session_state.current_role == "superadmin":
         elif menu == "👥 Operator Online":
             st.subheader("👥 Operator yang Sedang Online")
             online, offline = get_online_users()
-            
             if online:
                 st.success(f"🟢 **Sedang Online ({len(online)} orang)**")
                 for user in online:
                     st.write(f"✅ **{user}** — Aktif sekarang")
             else:
                 st.info("Tidak ada operator yang sedang online")
-            
             if offline:
                 st.write("---")
                 st.subheader(f"⚪ Offline ({len(offline)} orang)")
@@ -206,7 +233,7 @@ else:
                 st.code("\n".join(generated))
                 st.session_state.generated_numbers = "\n".join(generated)
 
-    # ================== PROSES PDF ==================
+    # ================== PROSES & GABUNGKAN PDF ==================
     st.divider()
     st.subheader("🚀 Proses & Gabungkan PDF")
 
