@@ -2,6 +2,9 @@ import streamlit as st
 import requests
 import fitz  # PyMuPDF
 from datetime import datetime
+import csv
+import os
+import pandas as pd
 
 st.set_page_config(page_title="Tilang PDF Merger", page_icon="📄", layout="centered")
 
@@ -18,10 +21,44 @@ if "current_user" not in st.session_state:
 if "current_role" not in st.session_state:
     st.session_state.current_role = None
 
+# ================== CATAT LOGIN KE CSV ==================
+def log_login(username):
+    filename = "login_history.csv"
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    role = st.session_state.users.get(username, {}).get("role", "operator")
+
+    # Buat file jika belum ada
+    if not os.path.exists(filename):
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Waktu Login", "Username", "Role", "Total Login"])
+
+    # Baca data lama
+    rows = []
+    total_login = 1
+    if os.path.exists(filename):
+        with open(filename, "r", newline="", encoding="utf-8") as f:
+            reader = list(csv.reader(f))
+            rows = reader[1:] if len(reader) > 1 else []
+            for row in rows:
+                if row[1] == username:
+                    total_login = int(row[3]) + 1
+                    break
+
+    # Update data
+    new_row = [now, username, role, total_login]
+    rows = [row for row in rows if row[1] != username]
+    rows.append(new_row)
+
+    # Tulis ulang
+    with open(filename, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Waktu Login", "Username", "Role", "Total Login"])
+        writer.writerows(rows)
+
 # ================== LOGIN PAGE ==================
 def show_login():
     st.markdown("<h1 style='text-align: center; color: #00f5ff;'>🔐 Tilang PDF Merger</h1>", unsafe_allow_html=True)
-    
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         username = st.text_input("Username")
@@ -32,6 +69,8 @@ def show_login():
                 st.session_state.logged_in = True
                 st.session_state.current_user = username
                 st.session_state.current_role = st.session_state.users[username]["role"]
+                
+                log_login(username)   # Catat login
                 st.success(f"✅ Login berhasil sebagai **{username}**")
                 st.rerun()
             else:
@@ -41,7 +80,7 @@ if not st.session_state.logged_in:
     show_login()
     st.stop()
 
-# ================== LOGOUT & USER INFO ==================
+# ================== HEADER ==================
 col_logout1, col_logout2 = st.columns([8, 2])
 with col_logout2:
     if st.button("🚪 Logout"):
@@ -71,43 +110,39 @@ st.divider()
 if st.session_state.current_role == "superadmin":
     with st.sidebar:
         st.header("⚙️ Super Admin Menu")
-        menu = st.radio("Pilih Menu", ["📝 PDF Merger", "👥 Kelola Operator"])
+        menu = st.radio("Pilih Menu", ["📝 PDF Merger", "👥 Kelola Operator", "📊 Riwayat Login"])
         
         if menu == "👥 Kelola Operator":
             st.subheader("Tambah Operator Baru")
             new_user = st.text_input("Username Operator Baru")
             new_pass = st.text_input("Password Operator Baru", type="password")
-            
             if st.button("Tambahkan Operator", type="primary"):
-                if new_user and new_pass:
-                    if new_user not in st.session_state.users:
-                        st.session_state.users[new_user] = {"password": new_pass, "role": "operator"}
-                        st.success(f"✅ Operator `{new_user}` berhasil ditambahkan!")
-                    else:
-                        st.error("❌ Username sudah digunakan!")
+                if new_user and new_pass and new_user not in st.session_state.users:
+                    st.session_state.users[new_user] = {"password": new_pass, "role": "operator"}
+                    st.success(f"✅ Operator `{new_user}` berhasil ditambahkan!")
                 else:
-                    st.error("Username dan Password tidak boleh kosong!")
-            
-            st.subheader("Daftar Operator")
-            operators = {k: v for k, v in st.session_state.users.items() if v.get("role") == "operator"}
-            if operators:
-                for user in list(operators.keys()):
-                    col1, col2 = st.columns([4, 1])
-                    with col1:
-                        st.write(f"👤 {user}")
-                    with col2:
-                        if st.button("🗑 Hapus", key=f"del_{user}"):
-                            del st.session_state.users[user]
-                            st.success(f"✅ {user} dihapus")
-                            st.rerun()
-            else:
-                st.info("Belum ada operator")
+                    st.error("❌ Username sudah ada atau kosong!")
 
-# ================== MAIN APP ==================
-if st.session_state.current_role == "superadmin" and 'menu' in locals() and menu == "👥 Kelola Operator":
-    st.info("📌 Anda sedang di halaman Kelola Operator (Super Admin)")
+        elif menu == "📊 Riwayat Login":
+            st.subheader("📊 Riwayat Login Operator")
+            if os.path.exists("login_history.csv"):
+                df = pd.read_csv("login_history.csv")
+                st.dataframe(df, use_container_width=True)
+                with open("login_history.csv", "rb") as f:
+                    st.download_button(
+                        label="📥 Download CSV",
+                        data=f,
+                        file_name=f"login_history_{datetime.now().strftime('%Y-%m-%d')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+            else:
+                st.info("Belum ada riwayat login.")
+
+# ================== MAIN APP (PDF MERGER) ==================
+if st.session_state.current_role == "superadmin" and 'menu' in locals() and menu != "📝 PDF Merger":
+    st.info("Anda sedang berada di menu Super Admin")
 else:
-    # Tabs
     tab1, tab2 = st.tabs(["📝 Input Manual", "🔢 Range Generator"])
 
     with tab1:
@@ -131,14 +166,14 @@ else:
 
         if st.button("🔢 Generate Range", type="primary", use_container_width=True):
             if end_num < start_num:
-                st.error("Nomor Akhir harus lebih besar dari Nomor Awal!")
+                st.error("Nomor Akhir harus lebih besar!")
             else:
                 generated = [f"{prefix}{str(i).zfill(7)}" for i in range(start_num, end_num + 1)]
                 st.success(f"✅ Berhasil generate **{len(generated)}** nomor")
                 st.code("\n".join(generated))
                 st.session_state.generated_numbers = "\n".join(generated)
 
-    # ================== PROSES PDF ==================
+    # ================== PROSES & GABUNGKAN PDF ==================
     st.divider()
     st.subheader("🚀 Proses & Gabungkan PDF")
 
@@ -167,29 +202,35 @@ else:
             base_url = "https://dakgargakkum.korlantas.polri.go.id/document/tilang/"
 
             for i, nomor in enumerate(nomor_list, 1):
+                full_url = base_url + nomor
                 status_text.write(f"⏳ Memproses: **{i}/{total}** | {nomor}")
                 progress_bar.progress(i / total)
 
                 try:
-                    r = requests.get(base_url + nomor, timeout=60)
+                    r = requests.get(full_url, timeout=60)
                     if r.status_code == 200 and r.content.startswith(b'%PDF'):
                         src_doc = fitz.open(stream=r.content, filetype="pdf")
                         
+                        # Deteksi Pengadilan
                         court = "???"
                         for page in src_doc:
                             text = page.get_text().upper()
-                            for name, initial in {"JAKARTA TIMUR": "JT", "JAKARTA UTARA": "JU",
-                                                "JAKARTA BARAT": "JB", "JAKARTA PUSAT": "JP",
-                                                "JAKARTA SELATAN": "JS"}.items():
+                            for name, initial in {
+                                "JAKARTA TIMUR": "JT", "JAKARTA UTARA": "JU",
+                                "JAKARTA BARAT": "JB", "JAKARTA PUSAT": "JP",
+                                "JAKARTA SELATAN": "JS"
+                            }.items():
                                 if name in text:
                                     court = initial
                                     break
                             if court != "???":
                                 break
 
+                        # Tambah Header
                         for page in src_doc:
                             rect = fitz.Rect(50, 20, 550, 65)
-                            page.insert_textbox(rect, f"{court} - {nomor}", fontsize=18,
+                            header_text = f"{court} - {nomor}"
+                            page.insert_textbox(rect, header_text, fontsize=18,
                                               color=(0,0,0), align=fitz.TEXT_ALIGN_LEFT)
 
                         master_doc.insert_pdf(src_doc)
@@ -202,15 +243,15 @@ else:
                     failed_list.append(nomor)
 
             progress_bar.progress(1.0)
-            status_text.write(f"✅ **Selesai!** {processed}/{total} file berhasil.")
+            status_text.write(f"✅ **Selesai!** {processed}/{total} file berhasil diproses.")
 
             col1, col2 = st.columns(2)
             with col1:
-                st.success(f"✅ Berhasil: {len(success_list)}")
+                st.success(f"✅ **Berhasil: {len(success_list)}**")
                 if success_list:
                     st.code("\n".join(success_list))
             with col2:
-                st.error(f"❌ Gagal: {len(failed_list)}")
+                st.error(f"❌ **Gagal: {len(failed_list)}**")
                 if failed_list:
                     st.code("\n".join(failed_list))
 
@@ -218,7 +259,14 @@ else:
                 output_name = f"HASIL_TILANG_GABUNGAN_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.pdf"
                 master_doc.save(output_name)
                 master_doc.close()
+
                 with open(output_name, "rb") as f:
-                    st.download_button("📥 Download Hasil Gabungan", data=f, file_name=output_name, mime="application/pdf", use_container_width=True)
+                    st.download_button(
+                        label="📥 Download Hasil Gabungan",
+                        data=f,
+                        file_name=output_name,
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
 
 st.caption("© Wawan Risnawan Digital & Creative Center")
